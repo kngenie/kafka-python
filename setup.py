@@ -21,8 +21,8 @@ setup(
     name="kafka-python",
     version="0.8.1-1",
 
-    install_requires=["distribute", "tox"],
-    tests_require=["tox"],
+    install_requires=["distribute", "tox", "gevent", "kazoo"],
+    tests_require=["tox", "gevent", "kazoo"],
     cmdclass={"test": Tox},
 
     packages=["kafka"],

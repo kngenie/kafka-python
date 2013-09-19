@@ -1,11 +1,13 @@
 import logging
 import socket
 import struct
-from threading import local
+
+from kafka.util import KafkaConnectionError, BufferUnderflowError
 
 log = logging.getLogger("kafka")
 
-class KafkaConnection(local):
+
+class KafkaConnection(object):
     """
     A socket connection to a single Kafka broker
 
@@ -14,11 +16,11 @@ class KafkaConnection(local):
     we can do something in here to facilitate multiplexed requests/responses
     since the Kafka API includes a correlation id.
     """
-    def __init__(self, host, port, bufsize=4096):
+    def __init__(self, host, port, bufsize=4096, module=socket):
         self.host = host
         self.port = port
         self.bufsize = bufsize
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock = module.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.connect((host, port))
         self._sock.settimeout(10)
 
@@ -48,7 +50,7 @@ class KafkaConnection(local):
         # Read the size off of the header
         resp = self._sock.recv(4)
         if resp == "":
-            raise Exception("Got no response from Kafka")
+            raise KafkaConnectionError("Got no response from Kafka")
         (size,) = struct.unpack('>i', resp)
 
         messageSize = size - 4
@@ -60,7 +62,8 @@ class KafkaConnection(local):
             resp = self._sock.recv(self.bufsize)
             log.debug("Read %d bytes from Kafka", len(resp))
             if resp == "":
-                raise BufferUnderflowError("Not enough data to read this response")
+                raise BufferUnderflowError("Not enough data to read "
+                                           "this response")
             total += len(resp)
             yield resp
 
@@ -72,10 +75,12 @@ class KafkaConnection(local):
 
     def send(self, requestId, payload):
         "Send a request to Kafka"
-        log.debug("About to send %d bytes to Kafka, request %d" % (len(payload), requestId))
+        log.debug("About to send %d bytes to Kafka, request %d" %
+                  (len(payload), requestId))
         sent = self._sock.sendall(payload)
+
         if sent != None:
-            raise RuntimeError("Kafka went away")
+            raise KafkaConnectionError("Kafka went away")
 
     def recv(self, requestId):
         "Get a response from Kafka"
@@ -86,12 +91,3 @@ class KafkaConnection(local):
     def close(self):
         "Close this connection"
         self._sock.close()
-
-    def reinit(self):
-        """
-        Re-initialize the socket connection
-        """
-        self._sock.close()
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.connect((self.host, self.port))
-        self._sock.settimeout(10)

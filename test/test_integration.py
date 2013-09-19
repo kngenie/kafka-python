@@ -561,9 +561,11 @@ class TestConsumer(unittest.TestCase):
         cls.server2.close()
         cls.zk.close()
 
-    def test_simple_consumer(self):
+    def test_simple_consumer(self, driver_type=KAFKA_PROCESS_DRIVER):
+        queue = "test_simple_consumer_%s" % (driver_type)
+
         # Produce 100 messages to partition 0
-        produce1 = ProduceRequest("test_simple_consumer", 0, messages=[
+        produce1 = ProduceRequest(queue, 0, messages=[
             create_message("Test message 0 %d" % i) for i in range(100)
         ])
 
@@ -572,7 +574,7 @@ class TestConsumer(unittest.TestCase):
             self.assertEquals(resp.offset, 0)
 
         # Produce 100 messages to partition 1
-        produce2 = ProduceRequest("test_simple_consumer", 1, messages=[
+        produce2 = ProduceRequest(queue, 1, messages=[
             create_message("Test message 1 %d" % i) for i in range(100)
         ])
 
@@ -581,7 +583,8 @@ class TestConsumer(unittest.TestCase):
             self.assertEquals(resp.offset, 0)
 
         # Start a consumer
-        consumer = SimpleConsumer(self.client, "group1", "test_simple_consumer")
+        consumer = SimpleConsumer(self.client, "group1", queue,
+                                  driver_type=driver_type)
         all_messages = []
         for message in consumer:
             all_messages.append(message)
@@ -612,7 +615,7 @@ class TestConsumer(unittest.TestCase):
         self.assertEqual(len(messages), 0)
 
         # Send 10 messages
-        produce = ProduceRequest("test_simple_consumer", 0, messages=[
+        produce = ProduceRequest(queue, 0, messages=[
             create_message("Test message 0 %d" % i) for i in range(10)
         ])
 
@@ -633,32 +636,51 @@ class TestConsumer(unittest.TestCase):
 
         consumer.stop()
 
-    def test_simple_consumer_pending(self):
-        # Produce 10 messages to partition 0 and 1
+    def test_simple_consumer_gevent(self):
+        return self.test_simple_consumer(driver_type=KAFKA_GEVENT_DRIVER)
 
-        produce1 = ProduceRequest("test_simple_pending", 0, messages=[
+    def test_simple_consumer_thread(self):
+        return self.test_simple_consumer(driver_type=KAFKA_THREAD_DRIVER)
+
+    def test_simple_consumer_pending(self, driver_type=KAFKA_PROCESS_DRIVER):
+        queue = "test_simple_pending_%s" % (driver_type)
+
+        # Produce 10 messages to partition 0 and 1
+        produce1 = ProduceRequest(queue, 0, messages=[
             create_message("Test message 0 %d" % i) for i in range(10)
         ])
         for resp in self.client.send_produce_request([produce1]):
             self.assertEquals(resp.error, 0)
             self.assertEquals(resp.offset, 0)
 
-        produce2 = ProduceRequest("test_simple_pending", 1, messages=[
+        produce2 = ProduceRequest(queue, 1, messages=[
             create_message("Test message 1 %d" % i) for i in range(10)
         ])
         for resp in self.client.send_produce_request([produce2]):
             self.assertEquals(resp.error, 0)
             self.assertEquals(resp.offset, 0)
 
-        consumer = SimpleConsumer(self.client, "group1", "test_simple_pending")
+        consumer = SimpleConsumer(self.client, "group1", queue,
+                                  driver_type=driver_type)
+
         self.assertEquals(consumer.pending(), 20)
         self.assertEquals(consumer.pending(partitions=[0]), 10)
         self.assertEquals(consumer.pending(partitions=[1]), 10)
         consumer.stop()
 
-    def test_multi_process_consumer(self):
+    def test_simple_consumer_pending_gevent(self):
+        return self.test_simple_consumer_pending(
+                                    driver_type=KAFKA_GEVENT_DRIVER)
+
+    def test_simple_consumer_pending_thread(self):
+        return self.test_simple_consumer_pending(
+                                    driver_type=KAFKA_THREAD_DRIVER)
+
+    def test_multi_consumer(self, driver_type=KAFKA_PROCESS_DRIVER):
+        queue = "test_mpconsumer_%s" % (driver_type)
+
         # Produce 100 messages to partition 0
-        produce1 = ProduceRequest("test_mpconsumer", 0, messages=[
+        produce1 = ProduceRequest(queue, 0, messages=[
             create_message("Test message 0 %d" % i) for i in range(100)
         ])
 
@@ -667,7 +689,7 @@ class TestConsumer(unittest.TestCase):
             self.assertEquals(resp.offset, 0)
 
         # Produce 100 messages to partition 1
-        produce2 = ProduceRequest("test_mpconsumer", 1, messages=[
+        produce2 = ProduceRequest(queue, 1, messages=[
             create_message("Test message 1 %d" % i) for i in range(100)
         ])
 
@@ -676,7 +698,9 @@ class TestConsumer(unittest.TestCase):
             self.assertEquals(resp.offset, 0)
 
         # Start a consumer
-        consumer = MultiProcessConsumer(self.client, "grp1", "test_mpconsumer")
+        consumer = MultiConsumer(self.client, "grp1", queue,
+                                 driver_type=driver_type)
+
         all_messages = []
         for message in consumer:
             all_messages.append(message)
@@ -693,7 +717,7 @@ class TestConsumer(unittest.TestCase):
         self.assertEqual(len(messages), 0)
 
         # Send 10 messages
-        produce = ProduceRequest("test_mpconsumer", 0, messages=[
+        produce = ProduceRequest(queue, 0, messages=[
             create_message("Test message 0 %d" % i) for i in range(10)
         ])
 
@@ -714,9 +738,17 @@ class TestConsumer(unittest.TestCase):
 
         consumer.stop()
 
-    def test_multi_proc_pending(self):
+    def test_multi_consumer_gevent(self):
+        return self.test_multi_consumer(driver_type=KAFKA_GEVENT_DRIVER)
+
+    def test_multi_consumer_thread(self):
+        return self.test_multi_consumer(driver_type=KAFKA_THREAD_DRIVER)
+
+    def test_multi_proc_pending(self, driver_type=KAFKA_PROCESS_DRIVER):
+        queue = "test_mppending_%s" % (driver_type)
+
         # Produce 10 messages to partition 0 and 1
-        produce1 = ProduceRequest("test_mppending", 0, messages=[
+        produce1 = ProduceRequest(queue, 0, messages=[
             create_message("Test message 0 %d" % i) for i in range(10)
         ])
 
@@ -724,7 +756,7 @@ class TestConsumer(unittest.TestCase):
             self.assertEquals(resp.error, 0)
             self.assertEquals(resp.offset, 0)
 
-        produce2 = ProduceRequest("test_mppending", 1, messages=[
+        produce2 = ProduceRequest(queue, 1, messages=[
             create_message("Test message 1 %d" % i) for i in range(10)
         ])
 
@@ -732,7 +764,8 @@ class TestConsumer(unittest.TestCase):
             self.assertEquals(resp.error, 0)
             self.assertEquals(resp.offset, 0)
 
-        consumer = MultiProcessConsumer(self.client, "group1", "test_mppending")
+        consumer = MultiConsumer(self.client, "group1", queue,
+                                 driver_type=driver_type)
         self.assertEquals(consumer.pending(), 20)
         self.assertEquals(consumer.pending(partitions=[0]), 10)
         self.assertEquals(consumer.pending(partitions=[1]), 10)
@@ -762,6 +795,12 @@ class TestConsumer(unittest.TestCase):
         for i, message in enumerate(consumer):
             self.assertEquals(all_messages[i], message.message)
         self.assertEquals(i, 19)
+
+    def test_multi_proc_pending_gevent(self):
+        return self.test_multi_proc_pending(driver_type=KAFKA_GEVENT_DRIVER)
+
+    def test_multi_proc_pending_thread(self):
+        return self.test_multi_proc_pending(driver_type=KAFKA_THREAD_DRIVER)
 
 def random_string(l):
     s = "".join(random.choice(string.letters) for i in xrange(l))

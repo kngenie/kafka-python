@@ -70,6 +70,16 @@ consumer = SimpleConsumer(kafka, "my-group", "my-topic")
 for message in consumer:
     print(message)
 
+# Gevent based consumer
+from kafka import KAFKA_GEVENT_DRIVER
+consumer = SimpleConsumer(kafka, "my-group", "my-topic",
+                          driver_type=KAFKA_GEVENT_DRIVER)
+
+# Threaded consumer
+from kafka import KAFKA_THREAD_DRIVER
+consumer = SimpleConsumer(kafka, "my-group", "my-topic",
+                          driver_type=KAFKA_THREAD_DRIVER)
+
 kafka.close()
 ```
 
@@ -91,20 +101,72 @@ producer = KeyedProducer(kafka, "my-topic", partitioner=RoundRobinPartitioner)
 
 ## Multiprocess consumer
 ```python
-from kafka.consume import MultiProcessConsumer
+from kafka.consume import MultiConsumer
 
-# This will split the number of partitions among two processes
-consumer = MultiProcessConsumer(kafka, "my-topic", "my-group", num_procs=2)
+# This will split the number of partitions among two processes (drivers)
+consumer = MultiConsumer(kafka, "my-topic", "my-group", num_drivers=2)
 
 # This will spawn processes such that each handles 2 partitions max
-consumer = MultiProcessConsumer(kafka, "my-topic", "my-group",
-                                partitions_per_proc=2)
+consumer = MultiConsumer(kafka, "my-topic", "my-group",
+                         partitions_per_driver=2)
 
 for message in consumer:
     print(message)
 
 for message in consumer.get_messages(count=5, block=True, timeout=4):
     print(message)
+
+# Gevent based consumer
+from kafka import KAFKA_GEVENT_DRIVER
+consumer = MultiConsumer(kafka, "my-group", "my-topic", num_drivers=2,
+                         driver_type=KAFKA_GEVENT_DRIVER)
+
+# Threaded consumer
+from kafka import KAFKA_THREAD_DRIVER
+consumer = MultiConsumer(kafka, "my-group", "my-topic",
+                         partitions_per_driver=2,
+                         driver_type=KAFKA_THREAD_DRIVER)
+```
+
+## Zookeeper support
+The Zookeeper supports creating a producer and SimpleConsumer.
+The Zookeeper consumer takes care of rebalancing partitions for a topic
+among a consumer-group.
+
+NOTE: This will work only with other kafka-python clients and will not
+work with Java/Scala clients (this is a TODO)
+```python
+from kafka.zookeeper import ZSimpleProducer, ZKeyedProducer
+from kafka.zookeeper import ZSimpleConsumer
+from kafka.partitioner import HashedPartitioner
+
+# Zookeeper SimpleProducer
+# Takes all arguments similar to SimpleProducer
+producer = ZSimpleProducer("127.0.0.1:2181", "my-topic")
+producer.send_messages("msg1", "msg2")
+
+# Zookeeper KeyedProducer
+# Takes all arguments similar to KeyedProducer
+producer = ZKeyedProducer("127.0.0.1:2181,127.0.0.1:2182", "my-topic",
+                          partitioner=HashedPartitioner)
+producer.send("key1", "msg1")
+
+# Zookeeper consumer.
+# Takes all arguments similar to SimpleConsumer
+consumer = ZSimpleConsumer("127.0.0.1:2181", "my-group", "my-topic")
+
+for msg in consumer:
+    print msg
+
+consumer.get_messages(block=True, timeout=10)
+
+# Zookeeper consumer managing offsets
+# Older kafka brokers do not support a proper offset fetch/commit
+# By enabling the manage_offsets=True option, ZSimpleConsumer will
+# do this job. It does the job by storing and retrieving offsets
+# in Zookeeper
+consumer = ZSimpleConsumer("127.0.0.1:2181", "my-group", "my-topic",
+                           manage_offsets=True)
 ```
 
 ## Low level

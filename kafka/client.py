@@ -4,7 +4,10 @@ from functools import partial
 from itertools import count, cycle
 import logging
 from operator import attrgetter
+import os
+import socket
 import struct
+import sys
 import time
 import zlib
 
@@ -20,11 +23,15 @@ class KafkaClient(object):
     CLIENT_ID = "kafka-python"
     ID_GEN = count()
 
-    def __init__(self, host, port, bufsize=4096):
+    def __init__(self, host, port, bufsize=4096, module=socket):
         # We need one connection to bootstrap
+        self.host = host
+        self.port = port
         self.bufsize = bufsize
+        self.module = module
+        self.pid = os.getpid()
         self.conns = {               # (host, port) -> KafkaConnection
-            (host, port): KafkaConnection(host, port, bufsize)
+            (host, port): KafkaConnection(host, port, bufsize, module=module)
         }
         self.brokers = {}            # broker_id -> BrokerMetadata
         self.topics_to_brokers = {}  # topic_id -> broker_id
@@ -39,7 +46,8 @@ class KafkaClient(object):
         "Get or create a connection to a broker"
         if (broker.host, broker.port) not in self.conns:
             self.conns[(broker.host, broker.port)] = \
-                KafkaConnection(broker.host, broker.port, self.bufsize)
+                KafkaConnection(broker.host, broker.port, self.bufsize,
+                                module=self.module)
 
         return self.conns[(broker.host, broker.port)]
 
@@ -160,12 +168,15 @@ class KafkaClient(object):
                                  correlation_id=requestId, payloads=payloads)
 
             # Send the request, recv the response
-            conn.send(requestId, request)
+            try:
+                conn.send(requestId, request)
+                response = conn.recv(requestId)
+            except (socket.error, KafkaConnectionError) as exp:
+                log.error("Error in broker", exc_info=sys.exc_info())
+                # Remove this broker information from the connection pool
+                self.conns.pop(broker, None)
+                raise
 
-            if decoder_fn is None:
-                continue
-
-            response = conn.recv(requestId)
             for response in decoder_fn(response):
                 acc[(response.topic, response.partition)] = response
 
@@ -180,9 +191,21 @@ class KafkaClient(object):
         for conn in self.conns.values():
             conn.close()
 
-    def reinit(self):
-        for conn in self.conns.values():
-            conn.reinit()
+    def dup(self, module=socket, check_and_close_original=True):
+        """
+        Create a duplicate of client instance with re-initialized
+        connections. Also if the dup is being done within a child
+        process, optionally close the original client's connections
+
+        module - The module to use for initializing sockets
+        check_and_close_original - Indicates if the original client must
+            be closed before dup
+        """
+        if check_and_close_original and os.getpid() != self.pid:
+            self.close()
+
+        return KafkaClient(self.host, self.port, self.bufsize,
+                           module=self.module)
 
     def send_produce_request(self, payloads=[], acks=1, timeout=1000,
                              fail_on_error=True, callback=None):
