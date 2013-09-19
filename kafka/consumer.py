@@ -12,7 +12,7 @@ from kafka.common import (
 )
 
 from kafka.util import (
-    ReentrantTimer, ConsumerFetchSizeTooSmall
+    ReentrantTimer, ConsumerFetchSizeTooSmall, ConsumerNoMoreData
 )
 
 log = logging.getLogger("kafka")

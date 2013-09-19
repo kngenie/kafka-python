@@ -76,6 +76,9 @@ class ChecksumError(Exception):
 class ConsumerFetchSizeTooSmall(Exception):
     pass
 
+class ConsumerNoMoreData(Exception):
+    pass
+
 class ReentrantTimer(object):
     """
     A timer that can be restarted, unlike threading.Timer
