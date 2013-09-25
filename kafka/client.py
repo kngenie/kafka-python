@@ -116,13 +116,17 @@ class KafkaClient(object):
         for conn in self.conns.values():
             try:
                 conn.send(requestId, request)
-                response = conn.recv(requestId)
-                return response
             except Exception, e:
                 log.warning("Could not send request [%r] to server %s, "
                             "trying next server: %s" % (request, conn, e))
                 continue
-
+            try:
+                response = conn.recv(requestId)
+                return response
+            except Exception, e:
+                log.warning("Error receiving response from server %s, "
+                            "trying next server: %s" % (conn, e))
+                continue
         return None
 
     def _send_broker_aware_request(self, payloads, encoder_fn, decoder_fn):
