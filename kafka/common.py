@@ -2,16 +2,9 @@ from collections import namedtuple
 
 import Queue
 from kazoo.handlers.threading import SequentialThreadingHandler
-from kazoo.handlers.gevent import SequentialGeventHandler
 import multiprocessing
 import threading
 import socket
-import gevent
-import gevent.event
-import gevent.queue
-import gevent.pool
-import gevent.socket
-import gevent.coros
 import time
 
 ###############
@@ -66,39 +59,44 @@ KAFKA_THREAD_DRIVER = 'thread'
 KAFKA_PROCESS_DRIVER = 'process'
 KAFKA_GEVENT_DRIVER = 'gevent'
 
+_drivers = {}
+def KafkaDriver(driver_type):
+    drv = _drivers.get(driver_type)
+    if drv is None:
+        if driver_type == KAFKA_THREAD_DRIVER:
+            drv = KafkaThreadDriver()
+        elif driver_type == KAFKA_PROCESS_DRIVER:
+            drv = KafkaProcessDriver()
+        elif driver_type == KAFKA_GEVENT_DRIVER:
+            from .gevent import KafkaGeventDriver
+            drv = KafkaGeventDriver()
+        else:
+            raise ValueError('undefined driver_type {!r}'.format(driver_type))
+        _drivers[driver_type] = drv
+    return drv
 
-class KafkaDriver(object):
-    def __init__(self, driver_type):
+class _KafkaDriver(object):
+    pass
+
+class KafkaThreadDriver(_KafkaDriver):
+    def __init__(self):
         self.socket = socket
         self.sleep = time.sleep
-        self.driver_type = driver_type
+        self.Queue = Queue.Queue
+        self.Event = threading.Event
+        self.Proc = threading.Thread
+        self.kazoo_handler = SequentialThreadingHandler
+        self.Lock = threading.Lock
 
-        if driver_type == KAFKA_THREAD_DRIVER:
-            self.Queue = Queue.Queue
-            self.Event = threading.Event
-            self.Proc = threading.Thread
-            self.kazoo_handler = SequentialThreadingHandler
-            self.Lock = threading.Lock
-
-        elif driver_type == KAFKA_PROCESS_DRIVER:
-            self.Queue = multiprocessing.Queue
-            self.Event = multiprocessing.Event
-            self.Proc = multiprocessing.Process
-            self.kazoo_handler = SequentialThreadingHandler
-            self.Lock = multiprocessing.Lock
-
-        elif driver_type == KAFKA_GEVENT_DRIVER:
-            self.Queue = gevent.queue.Queue
-            self.Event = gevent.event.Event
-            self.socket = gevent.socket
-            self.Proc = self.gevent_proc
-            self.sleep = gevent.sleep
-            self.kazoo_handler = SequentialGeventHandler
-            self.Lock = gevent.coros.Semaphore
-
-    def gevent_proc(self, target=None, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
-        return gevent.Greenlet(target, *args, **kwargs)
+class KafkaProcessDriver(_KafkaDriver):
+    def __init__(self):
+        self.socket = socket
+        self.sleep = time.sleep
+        self.Queue = multiprocessing.Queue
+        self.Event = multiprocessing.Event
+        self.Proc = multiprocessing.Process
+        self.kazoo_handler = SequentialThreadingHandler
+        self.Lock = multiprocessing.Lock
 
 
 class ErrorMapping(object):
