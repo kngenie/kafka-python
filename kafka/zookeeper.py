@@ -6,7 +6,10 @@ import os
 import random
 import sys
 import time
-import simplejson
+try:
+    import ujson as json
+except ImportError:
+    import json
 
 from functools import partial
 from Queue import Empty
@@ -48,7 +51,7 @@ def _get_brokers(zkclient):
     for broker_id in zkclient.get_children(BROKER_IDS_PATH):
         path = os.path.join(BROKER_IDS_PATH, broker_id)
         info, _ = zkclient.get(path)
-        info = simplejson.loads(info)
+        info = json.loads(info)
         brokers.append((info['host'], info['port']))
 
     log.debug("List of brokers fetched" + str(brokers))
