@@ -67,14 +67,18 @@ def get_client(zkclient):
     brokers = _get_brokers(zkclient)
     client = None
 
+    exp = None
     for host, port in brokers:
         try:
             return KafkaClient(host, port)
         except Exception as exp:
-            log.error("Error while connecting to %s:%d" % (host, port),
-                      exc_info=sys.exc_info())
-
-    raise exp
+            log.error("Error while connecting to %s:%d", host, port,
+                      exc_info=1)
+    # all brokers failed, or there's no brokers
+    if exp:
+        raise exp
+    else:
+        raise Exception('no broker')
 
 
 # TODO: Make this a subclass of Producer later
