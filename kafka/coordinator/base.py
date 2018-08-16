@@ -351,66 +351,81 @@ class BaseCoordinator(object):
             if self._heartbeat_thread is None:
                 self._start_heartbeat_thread()
 
-            while self.need_rejoin():
-                self.ensure_coordinator_ready()
+        while True:
+            with self._lock:
+                if not self.need_rejoin():
+                    break
 
-                # call on_join_prepare if needed. We set a flag
-                # to make sure that we do not call it a second
-                # time if the client is woken up before a pending
-                # rebalance completes. This must be called on each
-                # iteration of the loop because an event requiring
-                # a rebalance (such as a metadata refresh which
-                # changes the matched subscription set) can occur
-                # while another rebalance is still in progress.
+            self.ensure_coordinator_ready()
+
+            # call on_join_prepare if needed. We set a flag
+            # to make sure that we do not call it a second
+            # time if the client is woken up before a pending
+            # rebalance completes. This must be called on each
+            # iteration of the loop because an event requiring
+            # a rebalance (such as a metadata refresh which
+            # changes the matched subscription set) can occur
+            # while another rebalance is still in progress.
+            with self._lock:
                 if not self.rejoining:
                     self._on_join_prepare(self._generation.generation_id,
                                           self._generation.member_id)
                     self.rejoining = True
 
-                # ensure that there are no pending requests to the coordinator.
-                # This is important in particular to avoid resending a pending
-                # JoinGroup request.
-                while not self.coordinator_unknown():
-                    if not self._client.in_flight_request_count(self.coordinator_id):
+            # ensure that there are no pending requests to the coordinator.
+            # This is important in particular to avoid resending a pending
+            # JoinGroup request.
+            while True:
+                with self._lock:
+                    if self.coordinator_unknown():
                         break
-                    self._client.poll()
-                else:
-                    continue
+                if not self._client.in_flight_request_count(self.coordinator_id):
+                    break
+                self._client.poll()
+            else:
+                continue
 
-                # we store the join future in case we are woken up by the user
-                # after beginning the rebalance in the call to poll below.
-                # This ensures that we do not mistakenly attempt to rejoin
-                # before the pending rebalance has completed.
-                if self.join_future is None:
+            # we store the join future in case we are woken up by the user
+            # after beginning the rebalance in the call to poll below.
+            # This ensures that we do not mistakenly attempt to rejoin
+            # before the pending rebalance has completed.
+            with self._lock:
+                if self.state != MemberState.REBALANCING:
                     self.state = MemberState.REBALANCING
-                    future = self._send_join_group_request()
-
-                    self.join_future = future  # this should happen before adding callbacks
-
-                    # handle join completion in the callback so that the
-                    # callback will be invoked even if the consumer is woken up
-                    # before finishing the rebalance
-                    future.add_callback(self._handle_join_success)
-
-                    # we handle failures below after the request finishes.
-                    # If the join completes after having been woken up, the
-                    # exception is ignored and we will rejoin
-                    future.add_errback(self._handle_join_failure)
-
+                    request_join_group = True
                 else:
-                    future = self.join_future
+                    request_join_group = False
 
-                self._client.poll(future=future)
+            if request_join_group:
+                # must be called without locking self._lock
+                future = self._send_join_group_request()
 
-                if future.failed():
-                    exception = future.exception
-                    if isinstance(exception, (Errors.UnknownMemberIdError,
-                                              Errors.RebalanceInProgressError,
-                                              Errors.IllegalGenerationError)):
-                        continue
-                    elif not future.retriable():
-                        raise exception  # pylint: disable-msg=raising-bad-type
-                    time.sleep(self.config['retry_backoff_ms'] / 1000)
+                self.join_future = future  # this should happen before adding callbacks
+
+                # handle join completion in the callback so that the
+                # callback will be invoked even if the consumer is woken up
+                # before finishing the rebalance
+                future.add_callback(self._handle_join_success)
+
+                # we handle failures below after the request finishes.
+                # If the join completes after having been woken up, the
+                # exception is ignored and we will rejoin
+                future.add_errback(self._handle_join_failure)
+
+            else:
+                future = self.join_future
+
+            self._client.poll(future=future)
+
+            if future.failed():
+                exception = future.exception
+                if isinstance(exception, (Errors.UnknownMemberIdError,
+                                          Errors.RebalanceInProgressError,
+                                          Errors.IllegalGenerationError)):
+                    continue
+                elif not future.retriable():
+                    raise exception  # pylint: disable-msg=raising-bad-type
+                time.sleep(self.config['retry_backoff_ms'] / 1000)
 
     def _send_join_group_request(self):
         """Join the group and return the assignment for the next generation.
