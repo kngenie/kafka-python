@@ -366,11 +366,14 @@ class BaseCoordinator(object):
             # a rebalance (such as a metadata refresh which
             # changes the matched subscription set) can occur
             # while another rebalance is still in progress.
+            prepare_join = False
             with self._lock:
                 if not self.rejoining:
-                    self._on_join_prepare(self._generation.generation_id,
-                                          self._generation.member_id)
                     self.rejoining = True
+                    prepare_join = True
+            if prepare_join:
+                self._on_join_prepare(self._generation.generation_id,
+                                      self._generation.member_id)
 
             # ensure that there are no pending requests to the coordinator.
             # This is important in particular to avoid resending a pending
